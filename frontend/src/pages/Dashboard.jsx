@@ -1,5 +1,5 @@
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   FileText,
@@ -13,47 +13,95 @@ import {
 import Navbar from '../components/Navbar'
 import Button from '../components/Button'
 import IssueCard from '../components/IssueCard'
+import { getMyComplaints } from '../services/complaintService'
+
+const STATUS_LABELS = {
+  submitted: 'Submitted',
+  under_review: 'Under Review',
+  assigned: 'Assigned',
+  in_progress: 'In Progress',
+  resolved: 'Resolved',
+}
 
 function Dashboard() {
-
-  // Load complaints from Local Storage
-  const [complaints] = useState(() => {
-    try {
-      return JSON.parse(
-        localStorage.getItem('civicsenseComplaints') || '[]'
-      )
-    } catch (error) {
-      console.error('Error loading complaints:', error)
-      return []
-    }
-  })
-
-  // Search and filter states
+  const [complaints, setComplaints] = useState([])
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('All')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
 
-  // Filter complaints
-  const filteredComplaints = [...complaints]
-    .filter((complaint) => {
-      const search = searchTerm.toLowerCase()
+  // Fetch complaints belonging to the logged-in citizen
+  useEffect(() => {
+    let active = true
 
-      return (
-        (complaint.title || '').toLowerCase().includes(search) ||
-        (complaint.category || '').toLowerCase().includes(search) ||
-        (complaint.id || '').toLowerCase().includes(search) ||
-        (complaint.location || '').toLowerCase().includes(search)
-      )
-    })
-    .filter((complaint) =>
-      statusFilter === 'All' || complaint.status === statusFilter
+    async function loadComplaints() {
+      setLoading(true)
+      setError('')
+
+      try {
+        const data = await getMyComplaints()
+
+        if (!Array.isArray(data)) {
+          throw new Error('Unexpected complaint response from server')
+        }
+
+        const formattedComplaints = data.map((item) => ({
+          ...item,
+          id: `CS-${item.complaint_id}`,
+          backendId: item.complaint_id,
+          status: STATUS_LABELS[item.status] || item.status,
+          priority: item.priority_level,
+          createdAt: item.created_at,
+        }))
+
+        if (active) {
+          setComplaints(formattedComplaints)
+        }
+      } catch (err) {
+        if (active) {
+          setError(err.message || 'Unable to load your complaints')
+        }
+      } finally {
+        if (active) {
+          setLoading(false)
+        }
+      }
+    }
+
+    loadComplaints()
+
+    return () => {
+      active = false
+    }
+  }, [])
+
+  // Search and filter
+  const filteredComplaints = complaints.filter((complaint) => {
+    const search = searchTerm.toLowerCase()
+
+    const matchesSearch = [
+      complaint.title,
+      complaint.category,
+      complaint.id,
+      complaint.location,
+    ].some((value) =>
+      String(value || '').toLowerCase().includes(search)
     )
-    .reverse()
 
-  // Calculate dashboard statistics
+    const matchesStatus =
+      statusFilter === 'All' ||
+      complaint.status === statusFilter
+
+    return matchesSearch && matchesStatus
+  })
+
+  // Dashboard statistics
   const totalComplaints = complaints.length
 
-  const pendingComplaints = complaints.filter(
-    (complaint) => complaint.status === 'Pending'
+  const pendingComplaints = complaints.filter((complaint) =>
+    ['Submitted', 'Under Review', 'Assigned'].includes(
+      complaint.status
+    )
   ).length
 
   const resolvedComplaints = complaints.filter(
@@ -62,17 +110,13 @@ function Dashboard() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
-
-      {/* Navigation */}
       <Navbar />
 
       <main className="mx-auto max-w-7xl px-6 py-10">
 
         {/* Welcome Section */}
         <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-center">
-
           <div className="flex items-center gap-3">
-
             <div className="rounded-xl bg-emerald-500/10 p-3">
               <ClipboardList
                 size={28}
@@ -89,7 +133,6 @@ function Dashboard() {
                 Together, let's make our city better.
               </p>
             </div>
-
           </div>
 
           <Link to="/complaint-form">
@@ -98,87 +141,64 @@ function Dashboard() {
               Report a New Issue
             </Button>
           </Link>
-
         </div>
 
         {/* Statistics Cards */}
         <div className="mt-10 grid grid-cols-1 gap-5 sm:grid-cols-3">
 
-          {/* Total Complaints */}
-          <div className="group rounded-2xl border border-sky-400/20 bg-gradient-to-br from-sky-500/15 to-blue-600/5 p-6 transition duration-300 hover:-translate-y-1 hover:border-sky-400/50">
-
+          <div className="rounded-2xl border border-sky-400/20 bg-gradient-to-br from-sky-500/15 to-blue-600/5 p-6">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-slate-400">
                   Total Complaints
                 </p>
-
-                <h2 className="mt-3 text-4xl font-bold text-white">
+                <h2 className="mt-3 text-4xl font-bold">
                   {totalComplaints}
                 </h2>
               </div>
-
-              <div className="rounded-xl bg-sky-400/15 p-4">
-                <FileText size={28} className="text-sky-400" />
-              </div>
+              <FileText size={28} className="text-sky-400" />
             </div>
 
             <p className="mt-4 text-xs text-slate-400">
-              All reported civic issues
+              All your reported civic issues
             </p>
-
           </div>
 
-          {/* Pending Complaints */}
-          <div className="group rounded-2xl border border-amber-400/20 bg-gradient-to-br from-amber-500/15 to-orange-600/5 p-6 transition duration-300 hover:-translate-y-1 hover:border-amber-400/50">
-
+          <div className="rounded-2xl border border-amber-400/20 bg-gradient-to-br from-amber-500/15 to-orange-600/5 p-6">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-slate-400">
                   Pending Complaints
                 </p>
-
-                <h2 className="mt-3 text-4xl font-bold text-white">
+                <h2 className="mt-3 text-4xl font-bold">
                   {pendingComplaints}
                 </h2>
               </div>
-
-              <div className="rounded-xl bg-amber-400/15 p-4">
-                <Clock size={28} className="text-amber-400" />
-              </div>
+              <Clock size={28} className="text-amber-400" />
             </div>
 
             <p className="mt-4 text-xs text-slate-400">
               Awaiting action
             </p>
-
           </div>
 
-          {/* Resolved Complaints */}
-          <div className="group rounded-2xl border border-emerald-400/20 bg-gradient-to-br from-emerald-500/15 to-teal-600/5 p-6 transition duration-300 hover:-translate-y-1 hover:border-emerald-400/50">
-
+          <div className="rounded-2xl border border-emerald-400/20 bg-gradient-to-br from-emerald-500/15 to-teal-600/5 p-6">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-slate-400">
                   Resolved Complaints
                 </p>
-
-                <h2 className="mt-3 text-4xl font-bold text-white">
+                <h2 className="mt-3 text-4xl font-bold">
                   {resolvedComplaints}
                 </h2>
               </div>
-
-              <div className="rounded-xl bg-emerald-400/15 p-4">
-                <CheckCircle size={28} className="text-emerald-400" />
-              </div>
+              <CheckCircle size={28} className="text-emerald-400" />
             </div>
 
             <p className="mt-4 text-xs text-slate-400">
               Successfully resolved
             </p>
-
           </div>
-
         </div>
 
         {/* Recent Complaints */}
@@ -196,7 +216,6 @@ function Dashboard() {
 
           {/* Search and Filters */}
           <div className="mb-6 flex flex-col gap-4 sm:flex-row">
-
             <div className="relative flex-1">
               <Search
                 size={18}
@@ -208,7 +227,7 @@ function Dashboard() {
                 placeholder="Search by ID, title, category or location..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full rounded-xl border border-slate-700 bg-slate-900 py-3 pl-11 pr-4 text-white outline-none transition focus:border-emerald-500"
+                className="w-full rounded-xl border border-slate-700 bg-slate-900 py-3 pl-11 pr-4 text-white outline-none focus:border-emerald-500"
               />
             </div>
 
@@ -217,17 +236,32 @@ function Dashboard() {
               onChange={(e) => setStatusFilter(e.target.value)}
               className="rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-white outline-none focus:border-emerald-500"
             >
-              <option value="All">All Status</option>
-              <option value="Pending">Pending</option>
-              <option value="In Progress">In Progress</option>
-              <option value="Resolved">Resolved</option>
+              <option value="All">All Statuses</option>
+              {Object.values(STATUS_LABELS).map((status) => (
+                <option key={status} value={status}>
+                  {status}
+                </option>
+              ))}
             </select>
-
           </div>
 
-          {/* Complaint Cards */}
-          {complaints.length === 0 ? (
+          {/* Loading */}
+          {loading ? (
+            <div className="rounded-xl border border-slate-700 p-8 text-center text-slate-400">
+              Loading your complaints...
+            </div>
+          ) : error ? (
+            <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-8 text-center">
+              <p className="text-red-400">{error}</p>
 
+              <Link
+                to="/login"
+                className="mt-4 inline-block font-semibold text-emerald-400 hover:underline"
+              >
+                Go to Login
+              </Link>
+            </div>
+          ) : complaints.length === 0 ? (
             <div className="rounded-xl border border-slate-700 p-8 text-center">
               <p className="text-slate-300">
                 No complaints reported yet.
@@ -237,9 +271,7 @@ function Dashboard() {
                 Submit your first civic issue to see it here.
               </p>
             </div>
-
           ) : filteredComplaints.length === 0 ? (
-
             <div className="rounded-xl border border-slate-700 p-8 text-center">
               <Search
                 size={30}
@@ -249,34 +281,20 @@ function Dashboard() {
               <p className="text-slate-300">
                 No matching complaints found.
               </p>
-
-              <p className="mt-2 text-sm text-slate-400">
-                Try another search or status filter.
-              </p>
             </div>
-
           ) : (
-
             <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
-
               {filteredComplaints.map((complaint) => (
                 <IssueCard
-                  key={complaint.id}
-                  complaint={{
-                    ...complaint,
-                    date: complaint.createdAt || complaint.date,
-                  }}
+                  key={complaint.backendId}
+                  complaint={complaint}
                 />
               ))}
-
             </div>
-
           )}
 
         </section>
-
       </main>
-
     </div>
   )
 }

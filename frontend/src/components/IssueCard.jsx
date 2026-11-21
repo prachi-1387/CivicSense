@@ -8,11 +8,12 @@ import {
 
 function IssueCard({ complaint }) {
   const statusStyles = {
-    Pending: 'bg-amber-50 text-amber-700 ring-amber-200',
-    'In Progress': 'bg-blue-50 text-blue-700 ring-blue-200',
-    Resolved: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+  Submitted: 'bg-amber-50 text-amber-700 ring-amber-200',
+  'Under Review': 'bg-blue-50 text-blue-700 ring-blue-200',
+  Assigned: 'bg-indigo-50 text-indigo-700 ring-indigo-200',
+  'In Progress': 'bg-blue-50 text-blue-700 ring-blue-200',
+  Resolved: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
   }
-
   const complaintDate = complaint.createdAt || complaint.date
 
   const formattedDate = complaintDate
@@ -78,7 +79,7 @@ function IssueCard({ complaint }) {
         </span>
 
         <Link
-        to={`/complaint/${complaint.id}`}
+        to={`/complaint/${complaint.backendId}`}
          className="flex items-center gap-1 text-xs font-semibold text-emerald-600 transition-transform group-hover:translate-x-1"
          >
         View details <ArrowUpRight size={15} />
