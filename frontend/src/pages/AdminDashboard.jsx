@@ -1,5 +1,5 @@
-
-import { useState } from 'react'
+import AnalyticsDashboard from '../components/AnalyticsDashboard'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 import {
@@ -10,75 +10,146 @@ import {
   Search,
   MapPin,
   ShieldCheck,
+  RefreshCw,
 } from 'lucide-react'
 
-function AdminDashboard() {
-  const [complaints, setComplaints] = useState(() => {
-    try {
-      return JSON.parse(
-        localStorage.getItem('civicsenseComplaints') || '[]'
-      )
-    } catch {
-      return []
-    }
-  })
+import {
+  getAllComplaints,
+  updateComplaintStatus,
+} from '../services/complaintService'
 
+const STATUS_LABELS = {
+  submitted: 'Submitted',
+  under_review: 'Under Review',
+  assigned: 'Assigned',
+  in_progress: 'In Progress',
+  resolved: 'Resolved',
+}
+
+const STATUS_OPTIONS = [
+  'submitted',
+  'under_review',
+  'assigned',
+  'in_progress',
+  'resolved',
+]
+
+function AdminDashboard() {
+  const [complaints, setComplaints] = useState([])
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('All')
   const [categoryFilter, setCategoryFilter] = useState('All')
 
-  function handleStatusChange(id, newStatus) {
-    const updatedComplaints = complaints.map((complaint) =>
-      complaint.id === id
-        ? { ...complaint, status: newStatus }
-        : complaint
-    )
+  const [loading, setLoading] = useState(true)
+  const [updatingId, setUpdatingId] = useState(null)
+  const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
 
-    localStorage.setItem(
-      'civicsenseComplaints',
-      JSON.stringify(updatedComplaints)
-    )
+  // Load complaints from the actual backend
+  async function loadComplaints() {
+    setLoading(true)
+    setError('')
 
-    setComplaints(updatedComplaints)
+    try {
+      const data = await getAllComplaints()
+
+      if (!Array.isArray(data)) {
+        throw new Error('Unexpected complaint response from server')
+      }
+
+      setComplaints(data)
+    } catch (err) {
+      setError(err.message || 'Unable to load complaints')
+    } finally {
+      setLoading(false)
+    }
   }
 
+  useEffect(() => {
+    loadComplaints()
+  }, [])
+
+  // Update complaint status through FastAPI
+  async function handleStatusChange(id, newStatus) {
+    setError('')
+    setMessage('')
+    setUpdatingId(id)
+
+    try {
+      const result = await updateComplaintStatus(
+        id,
+        newStatus
+      )
+
+      setComplaints((current) =>
+        current.map((complaint) =>
+          complaint.complaint_id === id
+            ? {
+                ...complaint,
+                status: result.new_status || newStatus,
+                assigned_department:
+                  result.assigned_department ??
+                  complaint.assigned_department,
+              }
+            : complaint
+        )
+      )
+
+      setMessage(
+        `Complaint #${id} updated to ${STATUS_LABELS[newStatus]}.`
+      )
+    } catch (err) {
+      setError(err.message || 'Unable to update complaint status')
+    } finally {
+      setUpdatingId(null)
+    }
+  }
+
+  // Statistics
   const total = complaints.length
-  const pending = complaints.filter(
-    (c) => (c.status || 'Pending') === 'Pending'
+
+  const pending = complaints.filter((c) =>
+    ['submitted', 'under_review', 'assigned'].includes(c.status)
   ).length
+
   const inProgress = complaints.filter(
-    (c) => c.status === 'In Progress'
+    (c) => c.status === 'in_progress'
   ).length
+
   const resolved = complaints.filter(
-    (c) => c.status === 'Resolved'
+    (c) => c.status === 'resolved'
   ).length
 
   const categories = [
-    ...new Set(complaints.map((c) => c.category).filter(Boolean)),
+    ...new Set(
+      complaints.map((c) => c.category).filter(Boolean)
+    ),
   ]
 
+  // Search and filtering
   const filteredComplaints = complaints.filter((complaint) => {
     const searchText = search.toLowerCase()
 
     const matchesSearch = [
-      complaint.id,
+      complaint.complaint_id,
       complaint.title,
       complaint.category,
       complaint.location,
+      complaint.assigned_department,
     ].some((value) =>
       String(value || '').toLowerCase().includes(searchText)
     )
 
     const matchesStatus =
       statusFilter === 'All' ||
-      (complaint.status || 'Pending') === statusFilter
+      complaint.status === statusFilter
 
     const matchesCategory =
       categoryFilter === 'All' ||
       complaint.category === categoryFilter
 
     return matchesSearch && matchesStatus && matchesCategory
-  }).slice().reverse()
+  })
 
   const statCards = [
     {
@@ -126,18 +197,43 @@ function AdminDashboard() {
                 Admin Dashboard
               </h1>
             </div>
+
             <p className="mt-2 text-slate-400">
               Monitor and manage all civic complaints.
             </p>
           </div>
 
-          <Link
-            to="/dashboard"
-            className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300 transition hover:border-emerald-400 hover:text-emerald-400"
-          >
-            User Dashboard
-          </Link>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={loadComplaints}
+              disabled={loading}
+              className="flex items-center gap-2 rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300 hover:border-emerald-400 hover:text-emerald-400 disabled:opacity-50"
+            >
+              <RefreshCw size={16} />
+              Refresh
+            </button>
+
+            <Link
+              to="/dashboard"
+              className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300 hover:border-emerald-400 hover:text-emerald-400"
+            >
+              User Dashboard
+            </Link>
+          </div>
         </div>
+
+        {/* Messages */}
+        {error && (
+          <div className="mb-5 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-400">
+            {error}
+          </div>
+        )}
+
+        {message && (
+          <div className="mb-5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-400">
+            {message}
+          </div>
+        )}
 
         {/* Statistics */}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -154,6 +250,7 @@ function AdminDashboard() {
                     <p className="text-sm text-slate-400">
                       {card.title}
                     </p>
+
                     <h2 className="mt-3 text-3xl font-bold">
                       {card.value}
                     </h2>
@@ -168,11 +265,15 @@ function AdminDashboard() {
           })}
         </div>
 
+        {/* Analytics Dashboard */}
+        <AnalyticsDashboard />
+
         {/* Complaint Management */}
         <section className="mt-10">
           <h2 className="text-xl font-bold">
             Complaint Management
           </h2>
+
           <p className="mt-1 text-sm text-slate-400">
             Review complaints and update their status.
           </p>
@@ -184,6 +285,7 @@ function AdminDashboard() {
                 size={18}
                 className="absolute left-3 top-3 text-slate-400"
               />
+
               <input
                 type="text"
                 value={search}
@@ -199,9 +301,12 @@ function AdminDashboard() {
               className="rounded-xl border border-slate-700 bg-slate-900 p-3 text-sm outline-none focus:border-emerald-400"
             >
               <option value="All">All Statuses</option>
-              <option value="Pending">Pending</option>
-              <option value="In Progress">In Progress</option>
-              <option value="Resolved">Resolved</option>
+
+              {STATUS_OPTIONS.map((status) => (
+                <option key={status} value={status}>
+                  {STATUS_LABELS[status]}
+                </option>
+              ))}
             </select>
 
             <select
@@ -210,6 +315,7 @@ function AdminDashboard() {
               className="rounded-xl border border-slate-700 bg-slate-900 p-3 text-sm outline-none focus:border-emerald-400"
             >
               <option value="All">All Categories</option>
+
               {categories.map((category) => (
                 <option key={category} value={category}>
                   {category}
@@ -220,15 +326,22 @@ function AdminDashboard() {
 
           {/* Complaint List */}
           <div className="mt-6 space-y-4">
-            {filteredComplaints.length === 0 ? (
+
+            {loading ? (
+              <div className="rounded-2xl border border-slate-800 bg-slate-900 p-10 text-center text-slate-400">
+                Loading complaints from CivicSense...
+              </div>
+            ) : filteredComplaints.length === 0 ? (
               <div className="rounded-2xl border border-slate-800 bg-slate-900 p-10 text-center">
                 <FileText
                   size={40}
                   className="mx-auto text-slate-500"
                 />
+
                 <h3 className="mt-4 text-lg font-semibold">
                   No complaints found
                 </h3>
+
                 <p className="mt-2 text-sm text-slate-400">
                   Try changing your search or filters.
                 </p>
@@ -236,14 +349,14 @@ function AdminDashboard() {
             ) : (
               filteredComplaints.map((complaint) => (
                 <div
-                  key={complaint.id}
+                  key={complaint.complaint_id}
                   className="rounded-2xl border border-slate-800 bg-slate-900 p-5 transition hover:border-slate-600"
                 >
                   <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-center">
 
                     <div className="min-w-0 flex-1">
                       <p className="text-xs font-semibold text-emerald-400">
-                        {complaint.id}
+                        Complaint #{complaint.complaint_id}
                       </p>
 
                       <h3 className="mt-2 text-lg font-bold">
@@ -251,43 +364,65 @@ function AdminDashboard() {
                       </h3>
 
                       <p className="mt-1 text-sm text-slate-400">
-                        {complaint.category} · Priority: {complaint.priority}
+                        {complaint.category || 'Uncategorized'}
+                        {' · '}
+                        Priority: {complaint.priority_level || 'Not assigned'}
+                        {' · '}
+                        Urgency: {complaint.urgency_score ?? 'N/A'}
                       </p>
 
                       <p className="mt-3 flex items-center gap-2 text-sm text-slate-400">
                         <MapPin size={16} />
                         {complaint.location || 'Location unavailable'}
                       </p>
+
+                      {complaint.assigned_department && (
+                        <p className="mt-2 text-xs text-slate-500">
+                          Department: {complaint.assigned_department}
+                        </p>
+                      )}
+
+                      {complaint.created_at && (
+                        <p className="mt-2 text-xs text-slate-500">
+                          Submitted:{' '}
+                          {new Date(complaint.created_at).toLocaleString()}
+                        </p>
+                      )}
                     </div>
 
                     <div className="flex flex-wrap items-center gap-3">
                       <select
-                        value={complaint.status || 'Pending'}
+                        value={complaint.status || 'submitted'}
+                        disabled={
+                          updatingId === complaint.complaint_id
+                        }
                         onChange={(e) =>
                           handleStatusChange(
-                            complaint.id,
+                            complaint.complaint_id,
                             e.target.value
                           )
                         }
-                        className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm outline-none focus:border-emerald-400"
+                        className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm outline-none focus:border-emerald-400 disabled:opacity-50"
                       >
-                        <option value="Pending">Pending</option>
-                        <option value="In Progress">In Progress</option>
-                        <option value="Resolved">Resolved</option>
-                      </select>
+                        <option value="submitted" disabled>
+                          Submitted
+                        </option>
 
-                      <Link
-                        to={`/complaint/${complaint.id}`}
-                        className="rounded-lg bg-emerald-500/10 px-4 py-2 text-sm font-semibold text-emerald-400 hover:bg-emerald-500/20"
-                      >
-                        View Details
-                      </Link>
+                        {STATUS_OPTIONS
+                          .filter((status) => status !== 'submitted')
+                          .map((status) => (
+                            <option key={status} value={status}>
+                              {STATUS_LABELS[status]}
+                            </option>
+                          ))}
+                      </select>
                     </div>
 
                   </div>
                 </div>
               ))
             )}
+
           </div>
         </section>
       </main>

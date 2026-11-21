@@ -17,3 +17,12 @@ __pycache__/
 
 # Logs
 *.log
+# Frontend dependencies
+node_modules/
+**/node_modules/
+
+# Uploaded backup archives
+*.zip
+
+# Python test cache
+.pytest_cache/

@@ -1,23 +1,52 @@
 
 import { useState } from 'react'
 import Navbar from '../components/Navbar'
-import Button from '../components/Button'
 import MapPicker from '../components/MapPicker'
+import { submitComplaint } from '../services/complaintService'
+
+const initialScores = {
+  severity: 50,
+  public_impact: 50,
+  safety_risk: 50,
+  duration: 50,
+}
+
+const scoreFields = [
+  {
+    key: 'severity',
+    label: 'Issue Severity',
+    description: 'How serious is the damage or problem?',
+  },
+  {
+    key: 'public_impact',
+    label: 'Public Impact',
+    description: 'How many people are affected by this issue?',
+  },
+  {
+    key: 'safety_risk',
+    label: 'Safety Risk',
+    description: 'How much danger does this issue create?',
+  },
+  {
+    key: 'duration',
+    label: 'Issue Duration',
+    description: 'How long has this issue continued?',
+  },
+]
 
 function ComplaintForm() {
   const [formData, setFormData] = useState({
     title: '',
-    category: '',
     description: '',
     location: '',
-    priority: '',
   })
 
+  const [scores, setScores] = useState(initialScores)
   const [selectedLocation, setSelectedLocation] = useState(null)
-  const [submitted, setSubmitted] = useState(false)
-  const [complaintId, setComplaintId] = useState('')
-  const [image, setImage] = useState(null)
-  const [imagePreview, setImagePreview] = useState('')
+
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [result, setResult] = useState(null)
 
   function handleChange(e) {
     const { name, value } = e.target
@@ -27,101 +56,78 @@ function ComplaintForm() {
       [name]: value,
     }))
 
-    setSubmitted(false)
-    setComplaintId('')
+    setError('')
+    setResult(null)
   }
 
-  function handleImageChange(e) {
-    const file = e.target.files[0]
+  function handleScoreChange(e) {
+    const { name, value } = e.target
 
-    if (!file) return
+    setScores((prev) => ({
+      ...prev,
+      [name]: Number(value),
+    }))
 
-    if (!file.type.startsWith('image/')) {
-      alert('Please upload an image file.')
-      return
-    }
-
-    if (file.size > 5 * 1024 * 1024) {
-      alert('Image size must be less than 5 MB.')
-      return
-    }
-
-    setImage(file)
-    setImagePreview(URL.createObjectURL(file))
+    setResult(null)
+    setError('')
   }
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault()
 
-    if (
-      !formData.title.trim() ||
-      !formData.category ||
-      !formData.description.trim() ||
-      !formData.location.trim() ||
-      !formData.priority
-    ) {
-      alert('Please fill in all fields before submitting.')
-      return
-    }
+    setError('')
+    setResult(null)
 
     if (!selectedLocation) {
-      alert('Please select the issue location on the map.')
+      setError('Please select the issue location on the map.')
       return
     }
 
-    const newId =
-      'CS-' + Math.floor(1000 + Math.random() * 9000)
-
-    const newComplaint = {
-      ...formData,
-      id: newId,
-      imageName: image?.name || null,
-      latitude: selectedLocation.lat ?? null,
-      longitude: selectedLocation.lng ?? null,
-      status: 'Pending',
-
-      // Save date in ISO format for reliable date parsing
-      createdAt: new Date().toISOString(),
+    if (
+      !formData.location.trim() ||
+      formData.location.trim().length < 3
+    ) {
+      setError('Please enter a valid issue location.')
+      return
     }
+
+    const payload = {
+      title: formData.title.trim(),
+      description: formData.description.trim(),
+      location: formData.location.trim(),
+      severity: scores.severity,
+      public_impact: scores.public_impact,
+      safety_risk: scores.safety_risk,
+      duration: scores.duration,
+    }
+
+    setLoading(true)
 
     try {
-      const existingComplaints = JSON.parse(
-        localStorage.getItem('civicsenseComplaints') || '[]'
+      const response = await submitComplaint(payload)
+
+      setResult(response)
+
+      setFormData({
+        title: '',
+        description: '',
+        location: '',
+      })
+
+      setScores(initialScores)
+      setSelectedLocation(null)
+
+    } catch (err) {
+      setError(
+        err.message || 'Unable to submit complaint. Please try again.'
       )
-
-      if (!Array.isArray(existingComplaints)) {
-        throw new Error('Invalid complaint data in Local Storage')
-      }
-
-      existingComplaints.push(newComplaint)
-
-      localStorage.setItem(
-        'civicsenseComplaints',
-        JSON.stringify(existingComplaints)
-      )
-
-      setComplaintId(newId)
-      setSubmitted(true)
-
-      console.log('Complaint Details:', newComplaint)
-
-      setImage(null)
-      setImagePreview('')
-
-    } catch (error) {
-      console.error('Complaint saving error:', error)
-      alert('Unable to save complaint. Please try again.')
+    } finally {
+      setLoading(false)
     }
-  }
-
-  function removeImage() {
-    setImage(null)
-    setImagePreview('')
   }
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
-
       <Navbar />
 
       <main className="mx-auto max-w-3xl px-6 py-12">
@@ -152,52 +158,11 @@ function ComplaintForm() {
               value={formData.title}
               onChange={handleChange}
               placeholder="e.g. Pothole near main road"
+              minLength={5}
+              maxLength={150}
               required
               className="w-full rounded-lg border border-slate-700 bg-slate-800 p-3 text-white outline-none focus:border-emerald-400"
             />
-          </div>
-
-          {/* Category */}
-          <div>
-            <label className="mb-2 block font-medium">
-              Select Category
-            </label>
-
-            <select
-              name="category"
-              value={formData.category}
-              onChange={handleChange}
-              required
-              className="w-full rounded-lg border border-slate-700 bg-slate-800 p-3 text-white outline-none focus:border-emerald-400"
-            >
-              <option value="">Choose a category</option>
-              <option value="Roads">Roads & Infrastructure</option>
-              <option value="Waste">Waste Management</option>
-              <option value="Water">Water Supply</option>
-              <option value="Electricity">Electricity</option>
-              <option value="Drainage">Drainage</option>
-              <option value="Other">Other</option>
-            </select>
-          </div>
-
-          {/* Priority */}
-          <div>
-            <label className="mb-2 block font-medium">
-              Select Priority
-            </label>
-
-            <select
-              name="priority"
-              value={formData.priority}
-              onChange={handleChange}
-              required
-              className="w-full rounded-lg border border-slate-700 bg-slate-800 p-3 text-white outline-none focus:border-emerald-400"
-            >
-              <option value="">Choose priority</option>
-              <option value="Low">Low</option>
-              <option value="Medium">Medium</option>
-              <option value="High">High</option>
-            </select>
           </div>
 
           {/* Description */}
@@ -211,10 +176,65 @@ function ComplaintForm() {
               value={formData.description}
               onChange={handleChange}
               placeholder="Describe the civic issue in detail..."
+              minLength={10}
               required
-              rows="5"
+              rows={5}
               className="w-full rounded-lg border border-slate-700 bg-slate-800 p-3 text-white outline-none focus:border-emerald-400"
             />
+          </div>
+
+          {/* AI Assessment Inputs */}
+          <div className="space-y-6 rounded-xl border border-slate-700 bg-slate-800/50 p-5">
+
+            <div>
+              <h2 className="text-lg font-semibold">
+                Issue Assessment
+              </h2>
+
+              <p className="mt-1 text-sm text-slate-400">
+                Rate each factor from 0 to 100. The AI will use
+                these values to calculate complaint urgency.
+              </p>
+            </div>
+
+            {scoreFields.map((field) => (
+              <div key={field.key}>
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <label
+                    htmlFor={field.key}
+                    className="font-medium"
+                  >
+                    {field.label}
+                  </label>
+
+                  <span className="font-bold text-emerald-400">
+                    {scores[field.key]}/100
+                  </span>
+                </div>
+
+                <input
+                  id={field.key}
+                  type="range"
+                  name={field.key}
+                  min="0"
+                  max="100"
+                  step="1"
+                  value={scores[field.key]}
+                  onChange={handleScoreChange}
+                  className="w-full accent-emerald-400"
+                />
+
+                <p className="mt-1 text-xs text-slate-400">
+                  {field.description}
+                </p>
+
+                <div className="mt-1 flex justify-between text-xs text-slate-500">
+                  <span>Low</span>
+                  <span>High</span>
+                </div>
+              </div>
+            ))}
+
           </div>
 
           {/* Location */}
@@ -229,6 +249,8 @@ function ComplaintForm() {
               value={formData.location}
               onChange={handleChange}
               placeholder="Enter area, street or landmark"
+              minLength={3}
+              maxLength={255}
               required
               className="w-full rounded-lg border border-slate-700 bg-slate-800 p-3 text-white outline-none focus:border-emerald-400"
             />
@@ -243,6 +265,8 @@ function ComplaintForm() {
             <MapPicker
               onLocationSelect={(location) => {
                 setSelectedLocation(location)
+                setError('')
+                setResult(null)
 
                 if (
                   location.address &&
@@ -260,56 +284,33 @@ function ComplaintForm() {
 
             {selectedLocation && (
               <p className="text-sm text-emerald-400">
-                Selected coordinates: {selectedLocation.lat.toFixed(5)},
-                {' '}{selectedLocation.lng.toFixed(5)}
+                Selected coordinates:{' '}
+                {selectedLocation.lat.toFixed(5)},
+                {' '}
+                {selectedLocation.lng.toFixed(5)}
               </p>
             )}
           </div>
 
-          {/* Photo Upload */}
-          <div>
-            <label className="mb-2 block font-medium">
-              Upload Issue Photo (Optional)
-            </label>
-
-            <input
-              type="file"
-              accept="image/*"
-              onChange={handleImageChange}
-              className="w-full rounded-lg border border-slate-700 bg-slate-800 p-3 text-white"
-            />
-
-            {imagePreview && (
-              <div className="mt-4">
-                <p className="mb-2 text-sm text-slate-400">
-                  Image Preview:
-                </p>
-
-                <img
-                  src={imagePreview}
-                  alt="Issue Preview"
-                  className="h-48 w-full rounded-lg border border-slate-700 object-cover"
-                />
-
-                <button
-                  type="button"
-                  onClick={removeImage}
-                  className="mt-3 rounded-lg bg-red-500/10 px-4 py-2 text-sm text-red-400 hover:bg-red-500/20"
-                >
-                  Remove Photo
-                </button>
-              </div>
-            )}
-          </div>
+          {/* Backend Error */}
+          {error && (
+            <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-400">
+              {error}
+            </div>
+          )}
 
           {/* Submit */}
-          <Button type="submit" className="w-full">
-            Submit Complaint
-          </Button>
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full rounded-xl bg-emerald-500 px-5 py-3 font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {loading ? 'Submitting Complaint...' : 'Submit Complaint'}
+          </button>
 
           {/* Success Message */}
-          {submitted && (
-            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-5 text-center text-emerald-400">
+          {result && (
+            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-5 text-emerald-400">
 
               <p className="text-lg font-bold">
                 Complaint submitted successfully! 🎉
@@ -320,24 +321,41 @@ function ComplaintForm() {
               </p>
 
               <p className="mt-1 text-2xl font-bold">
-                {complaintId}
+                CS-{result.complaint_id}
               </p>
 
               <div className="mt-4 space-y-2 text-sm text-slate-200">
-                <p>Category: {formData.category}</p>
-                <p>Priority: {formData.priority}</p>
+                <p>
+                  Category: {result.category}
+                </p>
+
+                <p>
+                  Priority: {result.priority_level}
+                </p>
+
+                <p>
+                  Urgency Score: {result.urgency_score}/100
+                </p>
+
+                <p>
+                  Status: {result.status}
+                </p>
               </div>
 
+              {result.urgency_explanation?.overall_summary && (
+                <p className="mt-4 text-sm text-slate-300">
+                  {result.urgency_explanation.overall_summary}
+                </p>
+              )}
+
               <p className="mt-4 text-sm">
-                Save your Complaint ID to track your complaint later.
+                Your complaint has been recorded in CivicSense.
               </p>
             </div>
           )}
 
         </form>
-
       </main>
-
     </div>
   )
 }

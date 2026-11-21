@@ -1,27 +1,34 @@
-
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, declarative_base
 
-load_dotenv()
+# Load analytics-specific .env file
+ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
+load_dotenv(ENV_FILE)
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+# Get analytics database URL
+DATABASE_URL = os.getenv("ANALYTICS_DATABASE_URL")
 
 if not DATABASE_URL:
-    raise ValueError("DATABASE_URL is not configured")
+    raise RuntimeError("ANALYTICS_DATABASE_URL is not set in backend_analytics/.env")
 
+# Create database engine
 engine = create_engine(
     DATABASE_URL,
-    pool_pre_ping=True
+    pool_pre_ping=True,
+    connect_args={"connect_timeout": 10}
 )
 
+# Create database sessions
 SessionLocal = sessionmaker(
     autocommit=False,
     autoflush=False,
     bind=engine
 )
 
+Base = declarative_base()
 
 def get_db():
     db = SessionLocal()
